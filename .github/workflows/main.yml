@@ -1,0 +1,111 @@
+name: CLOUD GAMING PRO VPS (ROOT AUTOSETUP)
+
+on:
+workflow_dispatch:
+
+jobs:
+vps-session:
+runs-on: ubuntu-latest
+timeout-minutes: 360
+
+steps:  
+  - uses: actions/checkout@v4  
+
+  # =====================================  
+  # 1️⃣ WEBTOP ROOT MODE (SIN LIMITES)  
+  # =====================================  
+  - name: Start Webtop ROOT  
+    run: |  
+      docker run -d \  
+        --name webtop \  
+        --privileged \  
+        --user root \  
+        --security-opt seccomp=unconfined \  
+        --shm-size="6gb" \  
+        --memory="14g" \  
+        --memory-swap="14g" \  
+        -v webtop_data:/root \  
+        -e TZ=America/Caracas \  
+        -e TITLE="Cloud Gaming PRO ROOT" \  
+        -e LC_ALL=es_ES.UTF-8 \  
+        -p 3000:3000 \  
+        lscr.io/linuxserver/webtop:ubuntu-xfce  
+
+      echo "Esperando que el escritorio inicie..."  
+      sleep 40  
+
+  # =====================================  
+  # 2️⃣ INSTALAR STACK GAMING COMPLETO  
+  # =====================================  
+  - name: Install Gaming Stack  
+    run: |  
+      docker exec webtop bash -c "  
+      apt update  
+      dpkg --add-architecture i386  
+      apt update  
+
+      apt install -y \  
+        sudo nano git wget curl unzip cabextract \  
+        wine64 wine32 winbind winetricks \  
+        gamemode mangohud \  
+        libvulkan1 libvulkan1:i386 \  
+        mesa-vulkan-drivers mesa-vulkan-drivers:i386 \  
+        libgl1-mesa-dri libgl1-mesa-dri:i386 \  
+        xfce4-power-manager  
+      "  
+
+  # =====================================  
+  # 3️⃣ AUTO CONFIG WINE (SOLO 1 VEZ)  
+  # =====================================  
+  - name: Gaming AutoSetup PRO  
+    run: |  
+      docker exec webtop bash -c "  
+
+      export WINEPREFIX=/root/wine-gaming  
+
+      if [ ! -d /root/wine-gaming ]; then  
+          echo 'Primer inicio — creando entorno gaming'  
+
+          wineboot -i  
+          sleep 15  
+
+          winetricks -q \  
+            corefonts \  
+            vcrun2015 \  
+            d3dx9 \  
+            xact  
+
+      else  
+          echo 'Wine ya configurado ✔'  
+      fi  
+      "  
+
+  # =====================================  
+  # 4️⃣ OPTIMIZACION CLOUD GAMING  
+  # =====================================  
+  - name: Performance Tweaks  
+    run: |  
+      docker exec webtop bash -c "  
+
+      echo 'export WINEPREFIX=/root/wine-gaming' >> /etc/profile  
+      echo 'export WINEESYNC=1' >> /etc/profile  
+      echo 'export WINEFSYNC=1' >> /etc/profile  
+      echo 'export MESA_GLTHREAD=true' >> /etc/profile  
+      echo 'export DXVK_ASYNC=1' >> /etc/profile  
+      echo 'export PULSE_LATENCY_MSEC=60' >> /etc/profile  
+
+      xfconf-query -c xfwm4 -p /general/use_compositing -s false || true  
+      "  
+
+  # =====================================  
+  # 5️⃣ CLOUDFLARE TUNNEL (ACCESO WEB)  
+  # =====================================  
+  - name: Cloudflare Tunnel  
+    run: |  
+      echo "====================================="  
+      echo " ABRE LA URL TRYCLOUDFLARE ABAJO "  
+      echo "====================================="  
+
+      docker run --rm --net=host \  
+      cloudflare/cloudflared:latest \  
+      tunnel --url http://localhost:3000
