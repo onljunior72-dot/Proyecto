@@ -1,88 +1,163 @@
-name: CLOUD GAMING PRO VPS (ROOT AUTOSETUP)
+name: SteamOS Ultimate Cloud
 
 on:
   workflow_dispatch:
 
 jobs:
-  vps-session:
+  steamos:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-      - uses: actions/checkout@v4
 
-      # 1️⃣ WEBTOP ROOT
-      - name: Start Webtop ROOT
-        run: |
-          docker run -d \
-            --name webtop \
-            --privileged \
-            --user root \
-            --security-opt seccomp=unconfined \
-            --shm-size="6gb" \
-            -v webtop_data:/root \
-            -e TZ=America/Caracas \
-            -e TITLE="Cloud Gaming PRO ROOT" \
-            -e LC_ALL=es_ES.UTF-8 \
-            -p 3000:3000 \
-            lscr.io/linuxserver/webtop:ubuntu-xfce
+    - name: Update system
+      run: |
+        sudo apt update
 
-          echo "Esperando escritorio..."
-          sleep 40
+    # -----------------------------
+    # DOCKER
+    # -----------------------------
+    - name: Install Docker
+      run: |
+        sudo apt install -y docker.io
+        sudo systemctl start docker
 
-      # 2️⃣ INSTALL STACK
-      - name: Install Gaming Stack
-        run: |
-          docker exec webtop bash -c "
-          apt update
-          dpkg --add-architecture i386
-          apt update
+    # -----------------------------
+    # START WEBTOP (Desktop Linux)
+    # -----------------------------
+    - name: Start Webtop
+      run: |
+        docker run -d \
+          --name webtop \
+          --privileged \
+          -e PUID=1000 \
+          -e PGID=1000 \
+          -e TZ=UTC \
+          -p 3000:3000 \
+          -v webtop_data:/config \
+          lscr.io/linuxserver/webtop:ubuntu-kde
 
-          apt install -y \
-            sudo nano git wget curl unzip cabextract \
-            wine64 wine32 winbind winetricks \
-            gamemode mangohud \
-            libvulkan1 libvulkan1:i386 \
-            mesa-vulkan-drivers mesa-vulkan-drivers:i386 \
-            libgl1-mesa-dri libgl1-mesa-dri:i386 \
-            xfce4-power-manager
-          "
+    - name: Wait container
+      run: sleep 25
 
-      # 3️⃣ WINE SETUP
-      - name: Gaming AutoSetup PRO
-        run: |
-          docker exec webtop bash -c "
-          export WINEPREFIX=/root/wine-gaming
+    # -----------------------------
+    # BASE SYSTEM
+    # -----------------------------
+    - name: Install Base Packages
+      run: |
+        docker exec webtop bash -c "
+        apt update
+        apt install -y flatpak wget curl mangohud gamescope
+        flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        "
 
-          if [ ! -d /root/wine-gaming ]; then
-              echo 'Creando entorno Wine'
-              wineboot -i
-              sleep 15
-              winetricks -q corefonts vcrun2015 d3dx9 xact
-          else
-              echo 'Wine ya configurado'
-          fi
-          "
+    # -----------------------------
+    # AUTO APP SYSTEM (/proot/apps)
+    # -----------------------------
+    - name: Create App System
+      run: |
+        docker exec webtop bash -c '
 
-      # 4️⃣ PERFORMANCE
-      - name: Performance Tweaks
-        run: |
-          docker exec webtop bash -c "
-          echo 'export WINEPREFIX=/root/wine-gaming' >> /etc/profile
-          echo 'export WINEESYNC=1' >> /etc/profile
-          echo 'export WINEFSYNC=1' >> /etc/profile
-          echo 'export MESA_GLTHREAD=true' >> /etc/profile
-          echo 'export DXVK_ASYNC=1' >> /etc/profile
-          echo 'export PULSE_LATENCY_MSEC=60' >> /etc/profile
+        mkdir -p /proot/apps
+        mkdir -p /usr/local/bin/cloudapps
 
-          xfconf-query -c xfwm4 -p /general/use_compositing -s false || true
-          "
+cat > /usr/local/bin/cloudapps/install <<EOF
+#!/bin/bash
 
-      # 5️⃣ CLOUDFLARE
-      - name: Cloudflare Tunnel
-        run: |
-          echo "==== URL ABAJO ===="
+APP=\$1
 
-          docker run --rm --net=host \
-            cloudflare/cloudflared:latest \
-            tunnel --url http://localhost:3000
+case \$APP in
+
+steam)
+ flatpak install -y flathub com.valvesoftware.Steam
+ ;;
+
+heroic)
+ flatpak install -y flathub com.heroicgameslauncher.hgl
+ ;;
+
+lutris)
+ flatpak install -y flathub net.lutris.Lutris
+ ;;
+
+retroarch)
+ flatpak install -y flathub org.libretro.RetroArch
+ ;;
+
+discord)
+ flatpak install -y flathub com.discordapp.Discord
+ ;;
+
+*)
+ echo "App no soportada"
+ ;;
+
+esac
+EOF
+
+chmod +x /usr/local/bin/cloudapps/install
+'
+
+    # -----------------------------
+    # INSTALL STEAM
+    # -----------------------------
+    - name: Install Steam
+      run: |
+        docker exec webtop bash -c "
+        flatpak install -y flathub com.valvesoftware.Steam
+        "
+
+    # -----------------------------
+    # STEAMOS AUTO BOOT
+    # -----------------------------
+    - name: SteamOS Boot Mode
+      run: |
+        docker exec webtop bash -c '
+
+        mkdir -p /root/.config/autostart
+
+cat > /root/.config/autostart/steamos.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=SteamOS
+Exec=gamescope -f -w 1280 -h 800 -- steam -gamepadui
+X-GNOME-Autostart-enabled=true
+EOF
+'
+
+    # -----------------------------
+    # AUTO LOGIN STEAM
+    # -----------------------------
+    - name: Steam Auto Login
+      run: |
+        docker exec webtop bash -c '
+
+        mkdir -p /root/.steam
+
+cat > /root/.steam/steam_dev.cfg <<EOF
+BootStrapperInhibitAll=enable
+ForceLoginOnStartup=1
+EOF
+'
+
+    # -----------------------------
+    # CLOUD OPTIMIZATION
+    # -----------------------------
+    - name: Cloud Gaming Optimization
+      run: |
+        docker exec webtop bash -c "
+
+        echo 'export vblank_mode=0' >> /etc/profile
+        echo 'export DXVK_ASYNC=1' >> /etc/profile
+        echo 'export __GL_SYNC_TO_VBLANK=0' >> /etc/profile
+        "
+
+    # -----------------------------
+    # KEEP RUNNER ALIVE
+    # -----------------------------
+    - name: Keep Alive
+      run: |
+        echo 'SteamOS Cloud Running...'
+        while true; do
+          sleep 300
+        done
